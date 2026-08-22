@@ -12,6 +12,7 @@ import {
   distributePrizes,
   formatEther,
   fundPrizePool,
+  getReadProvider,
   readContractState,
   validateTeams,
 } from '../lib/contract'
@@ -43,6 +44,7 @@ export default function AdminConsole({ adminEmail, onSignOut }) {
   const [walletAddress, setWalletAddress] = useState('')
   const [chainId, setChainId] = useState(null)
   const [signer, setSigner] = useState(null)
+  const [walletProvider, setWalletProvider] = useState(null)
   const [contractAddress, setContractAddress] = useState(
     () => localStorage.getItem(STORAGE_KEYS.contract) || '',
   )
@@ -56,10 +58,13 @@ export default function AdminConsole({ adminEmail, onSignOut }) {
   const hasWallet = hasMetaMask()
   const onMonad = chainId === MONAD_TESTNET.chainId
 
-  const fetchContractState = useCallback(async (address) => {
-    const state = await readContractState(address)
-    return { ...state, balanceFormatted: formatEther(state.balance) }
-  }, [])
+  const fetchContractState = useCallback(
+    async (address) => {
+      const state = await readContractState(address, [walletProvider, getReadProvider()])
+      return { ...state, balanceFormatted: formatEther(state.balance) }
+    },
+    [walletProvider],
+  )
 
   /** Returns an error string on failure, or null on success. Never sets status
    *  itself, so callers can decide how a read failure combines with their own
@@ -96,6 +101,7 @@ export default function AdminConsole({ adminEmail, onSignOut }) {
         const network = await restoredProvider.getNetwork()
         if (cancelled) return
 
+        setWalletProvider(restoredProvider)
         setWalletAddress(accounts[0])
         setChainId(Number(network.chainId))
 
@@ -122,10 +128,12 @@ export default function AdminConsole({ adminEmail, onSignOut }) {
           setContractState(null)
           if (!account) {
             setSigner(null)
+            setWalletProvider(null)
             setStatus({ kind: 'info', text: 'Wallet disconnected.' })
             return
           }
           const nextProvider = new BrowserProvider(window.ethereum)
+          setWalletProvider(nextProvider)
           nextProvider
             .getSigner()
             .then(setSigner)
@@ -135,6 +143,7 @@ export default function AdminConsole({ adminEmail, onSignOut }) {
         onChainChanged: (nextChainId) => {
           setChainId(nextChainId)
           const nextProvider = new BrowserProvider(window.ethereum)
+          setWalletProvider(nextProvider)
           nextProvider
             .getSigner()
             .then(setSigner)
@@ -185,6 +194,7 @@ export default function AdminConsole({ adminEmail, onSignOut }) {
       setConnecting(true)
       setStatus(null)
       const connection = await connectWallet()
+      setWalletProvider(connection.provider)
       setSigner(connection.signer)
       setWalletAddress(connection.address)
       setChainId(connection.chainId)

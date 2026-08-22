@@ -98,12 +98,35 @@ export async function distributePrizes(signer, contractAddress) {
   return tx.hash
 }
 
-export async function readContractState(contractAddress, provider = getReadProvider()) {
+/**
+ * Reads status, trying each provider in order before giving up.
+ *
+ * Callers should pass the wallet's provider first: it is the node that just
+ * confirmed the deploy/fund transaction, so it cannot be behind on that block.
+ * The public RPC is load-balanced across many nodes, and a read issued right
+ * after a write can land on one that has not caught up yet — which is what
+ * produced "missing revert data" even with retries, since every retry re-rolls
+ * onto a possibly-stale node.
+ */
+export async function readContractState(contractAddress, providers) {
   if (!isAddress(contractAddress)) {
     throw new Error('Enter a valid contract address.')
   }
 
-  return withReadRetry(() => readContractStateOnce(contractAddress, provider))
+  // Only default when the caller supplied nothing; never silently append an extra
+  // provider, or a failure gets reported as whatever the surprise third try said.
+  const chain = (Array.isArray(providers) ? providers : [providers]).filter(Boolean)
+  if (chain.length === 0) chain.push(getReadProvider())
+
+  let lastError
+  for (const provider of chain) {
+    try {
+      return await withReadRetry(() => readContractStateOnce(contractAddress, provider))
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError
 }
 
 async function readContractStateOnce(contractAddress, provider) {
